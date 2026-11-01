@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Vagas para Concursos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .dragging {
+            opacity: 0.4;
+            background: #e0e7ff !important;
+        }
+        [draggable="true"] { cursor: grab; }
+        [draggable="true"]:active { cursor: grabbing; }
+
+        .handle-toque {
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .arrastando-toque {
+            background: #fff;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, .22);
+            border-radius: .5rem;
+        }
+
+        .cor-outra {
+            background: conic-gradient(#ef4444, #facc15, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444);
+        }
+
+        .valores { display: flex; flex-wrap: wrap; gap: .2rem 1.25rem; }
+        .valor { white-space: nowrap; }
+
+        @media (max-width: 767px) {
+            /* evita o zoom automático do iOS ao focar nos campos */
+            input, textarea, select { font-size: 16px !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="bg-indigo-700 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-graduation-cap"></i> Concursos & Vagas
+                </h1>
+            </div>
+            <div class="flex gap-2 w-full sm:w-auto">
+                <button onclick="openRankingModal()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg shadow transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-chart-pie"></i> Matérias que Mais Caem
+                </button>
+                <button onclick="openModal()" class="flex-1 sm:flex-none bg-white text-indigo-700 hover:bg-indigo-50 font-semibold px-4 py-2 rounded-lg shadow transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-plus"></i> Novo Concurso
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 py-8 flex-grow w-full">
+        <!-- Search and Counter Bar -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
+            <div class="relative w-full sm:w-96">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <i class="fa-solid fa-search"></i>
+                </span>
+                <input type="text" id="searchInput" placeholder="Pesquisar concurso..." 
+                    class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+            </div>
+
+            <div class="flex items-center gap-1 text-xs font-semibold" role="tablist">
+                <button id="abaTodos" role="tab" onclick="mudarAba(false)" class="px-3 py-1.5 rounded-lg transition">Todos</button>
+                <button id="abaFavoritos" role="tab" onclick="mudarAba(true)" class="px-3 py-1.5 rounded-lg transition flex items-center gap-1"><i class="fa-solid fa-star text-[10px]"></i> Favoritos <span id="contFav" class="opacity-70"></span></button>
+            </div>
+
+            <div class="flex items-center gap-4 w-full sm:w-auto justify-end">
+                <span id="dicaOrdenar" class="text-xs text-slate-400"><i class="fa-solid fa-grip-vertical"></i> Arraste para reordenar</span>
+                <span class="text-sm text-slate-500 font-medium" id="totalCount">0 concursos</span>
+            </div>
+        </div>
+
+        <!-- Table View -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div id="concursosTableBody" class="divide-y divide-slate-200"></div>
+            <div id="emptyState" class="hidden p-12 text-center">
+                <i class="fa-solid fa-folder-open text-4xl text-slate-300 mb-3"></i>
+                <p id="emptyMsg" class="text-slate-500 font-medium">Nenhum concurso cadastrado ainda.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal for Add/Edit -->
+    <div id="concursoModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-start justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-xl max-w-xl w-full overflow-hidden transform transition-all my-auto">
+            <div class="bg-indigo-700 text-white px-6 py-4 flex justify-between items-center">
+                <h3 id="modalTitle" class="font-bold text-lg">Novo / Editar Concurso</h3>
+                <button onclick="closeModal()" aria-label="Fechar" class="text-indigo-200 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form id="concursoForm" onsubmit="saveConcurso(event)" class="p-6 space-y-4">
+                <input type="hidden" id="concursoIndex">
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Órgão</label>
+                        <input type="text" id="orgao" required placeholder="Ex: BB, INSS..." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Cargo</label>
+                        <input type="text" id="cargo" required placeholder="Ex: Escriturário" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-2">Cores do órgão <span class="normal-case font-normal text-slate-400">(opcional, até 3)</span></label>
+                    <input type="hidden" id="cor">
+                    <div id="corOpcoes" class="flex flex-wrap items-center gap-2.5"></div>
+                    <p id="corAviso" class="text-[11px] text-slate-400 mt-2"></p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nível</label>
+                        <input type="text" id="nivel" required placeholder="Ex: MÉDIO, SUPERIOR" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Salário (R$)</label>
+                        <input type="text" id="salario" required placeholder="Ex: 4.314,69 ou 4.000 / 6.000" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <p class="text-[11px] text-slate-400 mt-1">Um valor = salário fixo. Dois valores = faixa salarial.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">A / R (R$)</label>
+                        <input type="text" id="ar" placeholder="Ex: 1.173,00 / 924,00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Jornada</label>
+                        <input type="text" id="jornada" placeholder="Ex: 30h ou 40h" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Previsão (Edital / Prova)</label>
+                    <input type="text" id="previsao" placeholder="Ex: 2º Semestre / 2026" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Matérias e Conteúdos</label>
+                    <p class="text-[11px] text-slate-400 mb-2">Toque numa matéria para editar só o conteúdo dela.</p>
+                    <div id="materiasEditor" class="space-y-2"></div>
+                    <p id="materiasVazio" class="hidden text-sm text-slate-400 italic py-2">Nenhuma matéria adicionada ainda.</p>
+                    <button type="button" onclick="adicionarMateria()" class="mt-3 w-full sm:w-auto px-4 py-2 text-sm font-medium text-indigo-700 border border-indigo-200 hover:bg-indigo-50 rounded-lg transition flex items-center justify-center gap-2"><i class="fa-solid fa-plus"></i> Adicionar matéria</button>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 text-sm font-medium bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg shadow transition">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for Viewing Materias & Contents -->
+    <div id="materiasModal" role="dialog" aria-modal="true" aria-labelledby="materiasModalTitle" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-start justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden transform transition-all my-auto">
+            <div class="bg-indigo-700 text-white px-6 py-4 flex justify-between items-center">
+                <h3 id="materiasModalTitle" class="font-bold text-lg">Matérias e Conteúdos</h3>
+                <button onclick="closeMateriasModal()" aria-label="Fechar" class="text-indigo-200 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-6">
+                <div id="materiasListContainer" class="space-y-4 max-h-80 overflow-y-auto pr-2">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+            <div class="bg-slate-50 px-6 py-3 flex justify-end border-t border-slate-200">
+                <button onclick="closeMateriasModal()" class="px-4 py-2 text-sm font-medium bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg transition">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Ranking, Charts & Órgãos by Matéria -->
+    <div id="rankingModal" role="dialog" aria-modal="true" class="fixed inset-0 bg-white hidden flex-col z-50">
+        <div class="flex flex-col w-full h-full min-h-0">
+            <div class="bg-emerald-700 text-white px-6 py-4 flex justify-between items-center shrink-0">
+                <h3 class="font-bold text-lg flex items-center gap-2"><i class="fa-solid fa-chart-pie"></i> Matérias que Mais Caem</h3>
+                <button onclick="closeRankingModal()" aria-label="Fechar" class="text-emerald-200 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-3 sm:p-6 flex-1 overflow-y-auto min-h-0">
+                <p id="instrucaoGrafico" class="text-xs text-slate-500 mb-3">Cada fatia é um conteúdo. Clique em um item para ver quais órgãos exigem esse conteúdo:</p>
+
+                <!-- Área do Gráfico de Pizza (Circular Real) -->
+                <div id="pizzaSection" class="flex flex-col items-center justify-center">
+                    <div id="pizzaPalco" class="relative w-full my-2" style="height:340px;overflow:hidden;">
+                        <div id="pizzaStage" style="position:absolute;left:50%;top:0;width:560px;height:340px;margin-left:-280px;transform-origin:top center;">
+                            <svg id="pizzaLinhas" width="560" height="340" viewBox="0 0 560 340" class="absolute inset-0 pointer-events-none"></svg>
+                            <div id="pizzaChartVisual" class="absolute rounded-full flex items-center justify-center shadow-lg border border-slate-200" style="left:184px;top:74px;width:192px;height:192px;background:#e2e8f0;">
+                                <div id="pizzaRotulos" class="absolute inset-0 pointer-events-none"></div>
+                                <div id="pizzaMiolo" class="absolute w-24 h-24 bg-white rounded-full flex flex-col items-center justify-center text-center shadow-md px-2 pointer-events-none">
+                                    <span id="pizzaCentroTitulo" class="text-[10px] leading-tight text-slate-500 font-bold break-words line-clamp-3">Total</span>
+                                    <span id="pizzaTotalMaterias" class="text-sm font-bold text-slate-700">0</span>
+                                </div>
+                            </div>
+                            <div id="pizzaRotulosFora" class="absolute inset-0 pointer-events-none"></div>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-400 text-center">Passe o mouse ou toque numa fatia para ver o conteúdo</p>
+                    <div id="pizzaLegenda" class="w-full mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        <!-- Legenda da Pizza gerada via JS -->
+                    </div>
+                </div>
+
+                <!-- Detalhes dos Órgãos ao clicar na matéria -->
+                <div id="orgaoDetalheContainer" class="hidden mt-4 pt-4 border-t border-slate-200">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 id="detalheMateriaTitulo" class="font-bold text-indigo-700 text-sm">Órgãos para esta matéria</h4>
+                        <button onclick="voltarParaGrafico()" class="text-xs text-indigo-600 hover:underline font-medium"><i class="fa-solid fa-arrow-left"></i> Voltar ao gráfico</button>
+                    </div>
+                    <div id="listaOrgaosPorMateria" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+            </div>
+            <div class="bg-slate-50 px-6 py-3 flex justify-end border-t border-slate-200 shrink-0">
+                <button onclick="closeRankingModal()" class="px-4 py-2 text-sm font-medium bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg transition">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+        Painel de Concursos • Gráficos interativos integrados • Dados salvos automaticamente neste navegador.
+    </footer>
+
+    <script>
+        const defaultConcursos = [
+            { orgao: "BB", cores: ["#facc15", "#2563eb"], cargo: "Escriturário", nivel: "MÉDIO", salario: "4.314,69", ar: "R$ 1173 / 924", jornada: "30h", previsao: "", materias: "Português: Crase, Sintaxe, Interpretação de Texto\nMatemática Financeira: Juros Simples e Compostos, Porcentagem\nInformática: Hardware, Windows, Pacote Office\nConhecimentos Bancários: Sistema Financeiro Nacional, Garantias" },
+            { orgao: "CAIXA", cores: ["#2563eb", "#f97316"], cargo: "TÉC BANCÁRIO", nivel: "MÉDIO", salario: "3.762,00", ar: "R$ 2000", jornada: "30h", previsao: "", materias: "Língua Portuguesa: Compreensão de textos, Ortografia\nMatemática: Razão e Proporção, Estatística Básica\nConhecimentos Bancários: Produtos Bancários, Ética e Compliance" },
+            { orgao: "BC", cargo: "TÉC DO BANCO CENTRAL", nivel: "MÉDIO", salario: "8.300,00", ar: "R$ 1192", jornada: "30h ou 40h", previsao: "", materias: "Português: Redação Oficial, Gramática\nDireito Constitucional: Direitos Fundamentais, Administração Pública\nDireito Administrativo: Atos Administrativos, Licitações" },
+            { orgao: "INSS", cargo: "TÉC DO SEGURO SOCIAL", nivel: "MÉDIO", salario: "6.355,00", ar: "R$ 1192", jornada: "40h", previsao: "", materias: "Português: Coesão e Coerência\nDireito Previdenciário: Seguridade Social, Benefícios do INSS\nDireito Administrativo: Princípios, Poderes Administrativos" },
+            { orgao: "PRF", cargo: "AGENTE ADMINISTRATIVO", nivel: "MÉDIO", salario: "5.100,00", ar: "R$ 1192", jornada: "40h", previsao: "", materias: "Português: Tipologia Textual\nInformática: Redes de Computadores, Segurança da Informação\nArquivologia: Gestão de Documentos" }
+        ];
+
+        function loadConcursos() {
+            try {
+                const d = JSON.parse(localStorage.getItem('concursos_data_v26'));
+                return Array.isArray(d) ? d.filter(x => x && typeof x === 'object') : defaultConcursos;
+            } catch (e) {
+                return defaultConcursos;
+            }
+        }
+
+        let concursos = loadConcursos();
+
+        const semAcento = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        // Converte um valor para o formato de reais: R$ 1.234,56
+        function numeroBR(texto) {
+            const t = texto.trim();
+            let inteiro, dec = '';
+            if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t) || /^\d+,\d+$/.test(t) || /^\d+$/.test(t)) {
+                // padrão brasileiro: ponto = milhar, vírgula = centavos
+                [inteiro, dec = ''] = t.split(',');
+                inteiro = inteiro.replace(/\./g, '');
+            } else if (/^\d+\.\d{1,2}$/.test(t)) {
+                // 1173.50
+                [inteiro, dec] = t.split('.');
+            } else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) {
+                // 1,173.50
+                [inteiro, dec = ''] = t.replace(/,/g, '').split('.');
+            } else {
+                return null;
+            }
+            dec = (dec + '00').slice(0, 2);
+            inteiro = inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+            return `R$\u00A0${inteiro},${dec}`; // espaço sem quebra: o R$ nunca se separa do valor
+        }
+
+        // Salário: um valor -> "R$ 4.000,00"; dois valores -> "R$ 4.000,00 R$ 6.000,00"
+        function salarioLista(v) {
+            const t = String(v ?? '').trim();
+            if (!t) return [];
+            const numeros = t.match(/\d+(?:[.,]\d+)*/g);
+            if (!numeros) return [t];
+            const fmt = n => numeroBR(n) ?? n;
+            return numeros.slice(0, 2).map(fmt);
+        }
+        const salarioFmt = v => salarioLista(v).join(' ');
+
+        // Cada valor vira um bloco separado, para dar espaço entre eles na tela
+        function valoresHtml(lista) {
+            if (!lista.length) return '';
+            return '<span class="valores">' + lista.map(x => `<span class="valor">${escapeHtml(x)}</span>`).join('') + '</span>';
+        }
+
+        // Aceita um valor ou vários separados por "/" (ex.: A / R)
+        function moneyLista(v) {
+            const t = String(v ?? '').trim();
+            if (!t) return [];
+            return t.split('/').map(parte => {
+                const limpa = parte.replace(/R\$/gi, '').trim();
+                if (!limpa) return '';
+                return numeroBR(limpa) ?? parte.trim();
+            }).filter(Boolean);
+        }
+        const money = v => moneyLista(v).join(' ');
+
+        function saveToLocalStorage() {
+            try {
+                localStorage.setItem('concursos_data_v26', JSON.stringify(concursos));
+            } catch (e) {
+                alert('Não foi possível salvar os dados neste navegador. Verifique se o armazenamento está liberado.');
+            }
+        }
+
+        const PALETA_CORES = [
+            ['Branco', '#ffffff'], ['Cinza', '#64748b'], ['Preto', '#1f2937'],
+            ['Amarelo claro', '#fde047'], ['Amarelo', '#facc15'], ['Dourado', '#ca8a04'],
+            ['Laranja', '#f97316'], ['Vermelho', '#dc2626'], ['Vinho', '#991b1b'],
+            ['Rosa', '#ec4899'], ['Roxo', '#7c3aed'],
+            ['Azul-marinho', '#1e3a8a'], ['Azul', '#2563eb'], ['Azul claro', '#38bdf8'], ['Ciano', '#0891b2'],
+            ['Verde claro', '#4ade80'], ['Verde', '#16a34a'], ['Verde-escuro', '#166534']
+        ];
+        // cor clara = número em texto escuro; cor escura = número em texto branco
+        const ehClara = hex => {
+            const n = parseInt(hex.slice(1), 16);
+            return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 150;
+        };
+        const MAX_CORES = 3;
+        const corValida = h => /^#[0-9a-f]{6}$/i.test(h || '');
+
+        // aceita o formato novo (cores: [...]) e o antigo (cor: '#...')
+        const coresDe = c => {
+            const lista = Array.isArray(c.cores) ? c.cores : (c.cor ? [c.cor] : []);
+            return lista.filter(corValida).slice(0, MAX_CORES);
+        };
+        const lerCores = () => document.getElementById('cor').value.split(',').filter(corValida);
+
+        function definirCores(lista, aviso = '') {
+            const cores = [...new Set((lista || []).filter(corValida).map(h => h.toLowerCase()))].slice(0, MAX_CORES);
+            document.getElementById('cor').value = cores.join(',');
+            desenharSeletorCor(cores, aviso);
+        }
+
+        function alternarCor(hex) {
+            const atuais = lerCores();
+            if (atuais.includes(hex)) return definirCores(atuais.filter(h => h !== hex));
+            if (atuais.length >= MAX_CORES) {
+                return definirCores(atuais, 'Máximo de 3 cores. Toque numa cor selecionada para tirá-la.');
+            }
+            definirCores([...atuais, hex]);
+        }
+
+        function desenharSeletorCor(cores, aviso) {
+            const box = document.getElementById('corOpcoes');
+            box.innerHTML = '';
+            const cheio = cores.length >= MAX_CORES;
+            const base = 'w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-400';
+            const anel = ' ring-2 ring-offset-2 ring-slate-700';
+
+            const semCor = document.createElement('button');
+            semCor.type = 'button';
+            semCor.title = 'Sem cor (padrão)';
+            semCor.setAttribute('aria-label', 'Sem cor (padrão)');
+            semCor.className = base + ' bg-white text-slate-400 text-xs' + (cores.length === 0 ? anel : '');
+            semCor.innerHTML = '<i class="fa-solid fa-ban"></i>';
+            semCor.onclick = () => definirCores([]);
+            box.appendChild(semCor);
+
+            const criar = (hex, nome) => {
+                const pos = cores.indexOf(hex);
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.title = nome;
+                b.setAttribute('aria-label', nome);
+                b.className = base + (pos >= 0 ? anel : (cheio ? ' opacity-40' : ''));
+                b.style.background = hex;
+                if (pos >= 0) {
+                    b.innerHTML = ehClara(hex)
+                        ? `<span class="text-[11px] font-bold text-slate-700">${pos + 1}</span>`
+                        : `<span class="text-[11px] font-bold text-white" style="text-shadow:0 0 3px rgba(0,0,0,.85)">${pos + 1}</span>`;
+                }
+                b.onclick = () => alternarCor(hex);
+                return b;
+            };
+
+            PALETA_CORES.forEach(([nome, hex]) => box.appendChild(criar(hex, nome)));
+            cores.filter(h => !PALETA_CORES.some(([, p]) => p === h))
+                 .forEach(h => box.appendChild(criar(h, 'Cor personalizada (toque para remover)')));
+
+            const outra = document.createElement('label');
+            outra.title = 'Outra cor';
+            outra.className = 'cor-outra relative w-8 h-8 rounded-full border border-slate-300 cursor-pointer overflow-hidden transition' + (cheio ? ' opacity-40' : '');
+            outra.innerHTML = '<input type="color" value="#2563eb" aria-label="Escolher outra cor" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">';
+            outra.querySelector('input').addEventListener('change', (e) => {
+                const v = e.target.value.toLowerCase();
+                if (!lerCores().includes(v)) alternarCor(v);
+            });
+            box.appendChild(outra);
+
+            const av = document.getElementById('corAviso');
+            av.textContent = aviso || (cores.length
+                ? `${cores.length} de ${MAX_CORES} cores selecionadas (na ordem em que aparecem)`
+                : 'Escolha até 3 cores, ou deixe sem cor.');
+            av.classList.toggle('text-rose-500', !!aviso);
+            av.classList.toggle('text-slate-400', !aviso);
+        }
+
+        const abertos = new Set();
+
+        function campoHtml(rotulo, conteudo) {
+            return `<div><dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">${rotulo}</dt><dd class="mt-0.5">${conteudo}</dd></div>`;
+        }
+
+        let soFavoritos = false;
+
+        function atualizarAbas() {
+            const on = 'bg-indigo-600 text-white', off = 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+            document.getElementById('abaTodos').className = `px-3 py-1.5 rounded-lg transition ${soFavoritos ? off : on}`;
+            document.getElementById('abaFavoritos').className = `px-3 py-1.5 rounded-lg transition flex items-center gap-1 ${soFavoritos ? on : off}`;
+            document.getElementById('abaTodos').setAttribute('aria-selected', !soFavoritos);
+            document.getElementById('abaFavoritos').setAttribute('aria-selected', soFavoritos);
+            const n = concursos.filter(c => c.fav).length;
+            document.getElementById('contFav').innerText = n ? `(${n})` : '';
+        }
+
+        function mudarAba(favoritos) {
+            soFavoritos = favoritos;
+            renderTable(document.getElementById('searchInput').value);
+        }
+
+        function alternarFavorito(c) {
+            c.fav = !c.fav;
+            saveToLocalStorage();
+            renderTable(document.getElementById('searchInput').value);
+        }
+
+        function renderTable(filterText = '') {
+            const tbody = document.getElementById('concursosTableBody');
+            const emptyState = document.getElementById('emptyState');
+            tbody.innerHTML = '';
+
+            const termo = semAcento(filterText);
+            const semFiltro = termo === '';
+            const base = soFavoritos ? concursos.filter(c => c.fav) : concursos;
+            atualizarAbas();
+            const filtered = base.filter(c =>
+                semAcento(c.orgao).includes(termo) ||
+                semAcento(c.cargo).includes(termo) ||
+                semAcento(c.nivel).includes(termo) ||
+                semAcento(c.materias).includes(termo)
+            );
+
+            const unidade = soFavoritos ? 'favorito(s)' : 'concurso(s)';
+            document.getElementById('totalCount').innerText = semFiltro ? `${base.length} ${unidade}` : `${filtered.length} de ${base.length} ${unidade}`;
+
+            if (filtered.length === 0) {
+                document.getElementById('emptyMsg').innerText = base.length === 0
+                    ? (soFavoritos ? 'Nenhum favorito ainda. Toque na estrelinha de um concurso para favoritar.' : 'Nenhum concurso cadastrado ainda.')
+                    : 'Nenhum concurso encontrado para essa busca.';
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            const toque = window.matchMedia('(pointer: coarse)').matches;
+            const reordenavel = semFiltro && !soFavoritos;   // reordenar só na lista completa
+            const podeArrastar = reordenavel && !toque;   // arrastar com mouse (computador)
+            const podeToque = reordenavel && toque;       // arrastar com o dedo (celular/tablet)
+            document.getElementById('dicaOrdenar').classList.toggle('hidden', soFavoritos);
+
+            filtered.forEach((c) => {
+                const originalIndex = concursos.indexOf(c);
+                const aberto = abertos.has(c);
+                const cores = coresDe(c);
+
+                let materiasHtml = '<span class="text-slate-400 italic text-xs">Nenhuma matéria cadastrada</span>';
+                if (c.materias && c.materias.trim() !== '') {
+                    materiasHtml = `<button onclick="openMateriasModal(${originalIndex})" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-3 py-2 rounded-full text-xs transition flex items-center gap-1.5 shadow-sm">
+                        <i class="fa-solid fa-book-open"></i> Ver Matérias & Conteúdos
+                    </button>`;
+                }
+
+                const item = document.createElement('div');
+                if (cores.length === 0) {
+                    item.style.borderLeft = '10px solid transparent';
+                } else if (cores.length === 1) {
+                    item.style.borderLeft = `10px solid ${cores[0]}`;
+                } else {
+                    // faixa dividida em partes iguais, uma para cada cor
+                    const n = cores.length;
+                    const partes = cores.map((cor, i) => `${cor} ${(i * 100) / n}% ${((i + 1) * 100) / n}%`).join(', ');
+                    item.style.borderLeft = '10px solid';
+                    item.style.borderImage = `linear-gradient(to bottom, ${partes}) 1`;
+                }
+
+                // Parte de fora: só o nome do órgão
+                const header = document.createElement('div');
+                header.className = 'flex items-center gap-3 px-4 py-4 hover:bg-slate-50 transition select-none';
+                header.dataset.index = originalIndex;
+                if (cores.length === 1) {
+                    header.style.background = cores[0] + '22';
+                } else if (cores.length > 1) {
+                    header.style.background = `linear-gradient(to right, ${cores.map(cor => cor + '26').join(', ')})`;
+                }
+                header.setAttribute('draggable', podeArrastar);
+                header.setAttribute('role', 'button');
+                header.setAttribute('tabindex', '0');
+                header.setAttribute('aria-expanded', aberto);
+                header.innerHTML = `
+                    ${podeToque
+                        ? '<span class="handle-toque -ml-2 px-3 py-2 text-slate-400 text-lg" aria-label="Segure e arraste para reordenar"><i class="fa-solid fa-grip-vertical"></i></span>'
+                        : `<i class="fa-solid fa-grip-vertical text-slate-300 ${podeArrastar ? '' : 'hidden'}"></i>`}
+                    <span class="flex-1 font-bold ${cores.length ? 'text-slate-800' : 'text-indigo-700'} text-base">${escapeHtml(c.orgao)}</span>
+                    <button type="button" class="btn-fav px-1.5 py-1 -my-1 text-xs leading-none transition ${c.fav ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}" aria-pressed="${!!c.fav}" aria-label="${c.fav ? 'Remover dos favoritos' : 'Favoritar'}" title="${c.fav ? 'Remover dos favoritos' : 'Favoritar'}"><i class="${c.fav ? 'fa-solid' : 'fa-regular'} fa-star"></i></button>
+                    <i class="chevron fa-solid fa-chevron-down text-slate-400 transition-transform ${aberto ? 'rotate-180' : ''}"></i>`;
+
+                const btnFav = header.querySelector('.btn-fav');
+                ['click', 'keydown', 'touchstart', 'mousedown'].forEach(ev => btnFav.addEventListener(ev, (e) => e.stopPropagation(), { passive: true }));
+                btnFav.addEventListener('click', () => alternarFavorito(c));
+                btnFav.setAttribute('draggable', 'false');
+
+                const alca = header.querySelector('.handle-toque');
+                if (alca) {
+                    alca.addEventListener('touchstart', (e) => prepararArrasteToque(e, item, originalIndex), { passive: true });
+                    alca.addEventListener('contextmenu', (e) => e.preventDefault());
+                    alca.addEventListener('click', (e) => e.stopPropagation());
+                }
+
+                header.addEventListener('dragstart', handleDragStart);
+                header.addEventListener('dragover', handleDragOver);
+                header.addEventListener('drop', handleDrop);
+                header.addEventListener('dragend', handleDragEnd);
+
+                // Ao clicar: todas as informações da vaga
+                const painel = document.createElement('div');
+                painel.className = `${aberto ? '' : 'hidden'} bg-white border-t border-slate-100 px-4 py-5`;
+                painel.innerHTML = `
+                    <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 text-sm">
+                        ${campoHtml('Cargo', `<span class="font-medium text-slate-800">${escapeHtml(c.cargo)}</span>`)}
+                        ${campoHtml('Nível', `<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold">${escapeHtml(c.nivel)}</span>`)}
+                        ${campoHtml('Salário', `<div class="text-emerald-600 font-semibold">${valoresHtml(salarioLista(c.salario)) || '-'}</div>`)}
+                        ${campoHtml('A / R', `<div class="text-emerald-600 font-semibold">${valoresHtml(moneyLista(c.ar)) || '-'}</div>`)}
+                        ${campoHtml('Jornada', `<span class="text-slate-600">${escapeHtml(c.jornada)}</span>`)}
+                        ${campoHtml('Previsão', `<span class="text-amber-600 font-medium">${escapeHtml(c.previsao || '-')}</span>`)}
+                    </dl>
+                    <div class="flex flex-wrap items-center justify-between gap-3 mt-5 pt-4 border-t border-slate-200">
+                        <div>${materiasHtml}</div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="editConcurso(${originalIndex})" class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-white border border-slate-200 transition" aria-label="Editar"><i class="fa-solid fa-pen-to-square"></i> Editar</button>
+                            <button onclick="deleteConcurso(${originalIndex})" class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-rose-600 hover:bg-white border border-slate-200 transition" aria-label="Excluir"><i class="fa-solid fa-trash"></i> Excluir</button>
+                        </div>
+                    </div>`;
+
+                const alternar = () => {
+                    if (Date.now() < bloqueioCliqueAte) return;
+                    if (abertos.has(c)) abertos.delete(c); else abertos.add(c);
+                    const agora = abertos.has(c);
+                    painel.classList.toggle('hidden', !agora);
+                    header.querySelector('.chevron').classList.toggle('rotate-180', agora);
+                    header.setAttribute('aria-expanded', agora);
+                };
+                header.addEventListener('click', alternar);
+                header.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(); }
+                });
+
+                item.appendChild(header);
+                item.appendChild(painel);
+                tbody.appendChild(item);
+            });
+        }
+
+        let mapaMateriasOrgaos = {};
+        const LAYOUTS = {
+            // computador: palco largo, rótulos de 12px
+            grande: { W: 560, H: 340, CX: 280, CY: 170, R: 96, largura: 168, porLado: 6, linha: 16, chars: 24, fonte: 12, cotovelo: 12, minimo: 8, miolo: 96 },
+            // celular: palco estreito, rótulos de 11px
+            pequeno: { W: 360, H: 340, CX: 180, CY: 170, R: 82, largura: 88, porLado: 5, linha: 14, chars: 14, fonte: 11, cotovelo: 6, minimo: 6, miolo: 82 }
+        };
+        let L = LAYOUTS.grande;
+        let PIZZA_W = L.W, PIZZA_H = L.H, PIZZA_CX = L.CX, PIZZA_CY = L.CY, PIZZA_R = L.R;
+        let layoutAtual = null;
+
+        function aplicarLayoutPizza(compacto) {
+            L = compacto ? LAYOUTS.pequeno : LAYOUTS.grande;
+            PIZZA_W = L.W; PIZZA_H = L.H; PIZZA_CX = L.CX; PIZZA_CY = L.CY; PIZZA_R = L.R;
+            const stage = document.getElementById('pizzaStage');
+            stage.style.width = `${L.W}px`;
+            stage.style.height = `${L.H}px`;
+            stage.style.marginLeft = `${-L.W / 2}px`;
+            const svg = document.getElementById('pizzaLinhas');
+            svg.setAttribute('width', L.W);
+            svg.setAttribute('height', L.H);
+            svg.setAttribute('viewBox', `0 0 ${L.W} ${L.H}`);
+            const pizza = document.getElementById('pizzaChartVisual');
+            pizza.style.left = `${L.CX - L.R}px`;
+            pizza.style.top = `${L.CY - L.R}px`;
+            pizza.style.width = pizza.style.height = `${L.R * 2}px`;
+            const miolo = document.getElementById('pizzaMiolo');
+            miolo.style.width = miolo.style.height = `${L.miolo}px`;
+            document.getElementById('pizzaCentroTitulo').style.fontSize = compacto ? '9px' : '';
+            document.getElementById('pizzaTotalMaterias').style.fontSize = compacto ? '13px' : '';
+        }
+
+        function desenharRotulosPizza() {
+            const svg = document.getElementById('pizzaLinhas');
+            const box = document.getElementById('pizzaRotulosFora');
+            svg.innerHTML = '';
+            box.innerHTML = '';
+
+            const LARGURA = L.largura, MAX_POR_LADO = L.porLado, FOLGA = L.minimo, MARGEM = 4;
+            const LINHA = L.linha;                 // altura de uma linha de texto (px)
+            const CARACTERES_POR_LINHA = L.chars;  // estimativa de caracteres por linha
+            const lados = { dir: [], esq: [] };
+
+            fatiasPizza.filter(f => f.pct >= 3).forEach(f => {
+                const a = ((f.ini + f.fim) / 2) * Math.PI / 180;
+                const linhasNome = Math.min(2, Math.max(1, Math.ceil(f.nome.length / CARACTERES_POR_LINHA)));
+                const item = { f, sen: Math.sin(a), cos: Math.cos(a), h: (linhasNome + 1) * LINHA + 2 };
+                item.top = PIZZA_CY - (PIZZA_R + L.cotovelo + 2) * item.cos - item.h / 2;
+                (item.sen >= 0 ? lados.dir : lados.esq).push(item);
+            });
+
+            Object.entries(lados).forEach(([lado, lista]) => {
+                const itens = lista
+                    .sort((a, b) => b.f.qtd - a.f.qtd)
+                    .slice(0, MAX_POR_LADO)
+                    .sort((a, b) => a.top - b.top);
+
+                // 1) empurra para baixo o que estiver encostando no anterior
+                itens.forEach((it, i) => {
+                    const minimo = i === 0 ? MARGEM : itens[i - 1].top + itens[i - 1].h + FOLGA;
+                    if (it.top < minimo) it.top = minimo;
+                });
+                // 2) se passou do fundo, empurra de volta para cima
+                for (let i = itens.length - 1; i >= 0; i--) {
+                    const maximo = i === itens.length - 1 ? PIZZA_H - MARGEM - itens[i].h
+                                                          : itens[i + 1].top - FOLGA - itens[i].h;
+                    if (itens[i].top > maximo) itens[i].top = maximo;
+                }
+                // 3) garante que o primeiro não saiu pelo topo
+                itens.forEach((it, i) => {
+                    const minimo = i === 0 ? MARGEM : itens[i - 1].top + itens[i - 1].h + FOLGA;
+                    if (it.top < minimo) it.top = minimo;
+                });
+
+                itens.forEach(it => {
+                    const f = it.f;
+                    const ex = PIZZA_CX + PIZZA_R * it.sen, ey = PIZZA_CY - PIZZA_R * it.cos;
+                    const mx = PIZZA_CX + (PIZZA_R + L.cotovelo) * it.sen, my = PIZZA_CY - (PIZZA_R + L.cotovelo) * it.cos;
+                    const ax = lado === 'dir' ? PIZZA_W - LARGURA - 6 : LARGURA + 6;
+                    const ay = it.top + it.h / 2;
+
+                    const linha = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                    linha.setAttribute('points', `${ex},${ey} ${mx},${my} ${ax},${ay}`);
+                    linha.setAttribute('fill', 'none');
+                    linha.setAttribute('stroke', '#94a3b8');
+                    linha.setAttribute('stroke-width', '1');
+                    svg.appendChild(linha);
+
+                    const el = document.createElement('div');
+                    el.className = 'absolute cursor-pointer pointer-events-auto';
+                    el.style.cssText = `top:${it.top}px;width:${LARGURA}px;line-height:${LINHA}px;font-size:${L.fonte}px;` +
+                        (lado === 'dir' ? `left:${PIZZA_W - LARGURA - 2}px;text-align:left;` : 'left:2px;text-align:right;');
+                    el.title = `${f.nome}${f.materias.length ? ' (' + f.materias.join(' • ') + ')' : ''} — ${f.qtd} concurso(s)`;
+                    el.innerHTML = `
+                        <div class="font-semibold text-slate-700 line-clamp-2 break-words">${escapeHtml(f.nome)}</div>
+                        <div class="text-slate-500 font-medium"><span class="inline-block w-2 h-2 rounded-full mr-1" style="background:${f.cor}"></span>${f.qtd} (${f.pct}%)</div>`;
+                    el.onclick = () => mostrarOrgaosDaMateria(f.chave);
+                    el.onmouseenter = () => { fatiaHover = f; atualizarCentroPizza(); };
+                    el.onmouseleave = () => { fatiaHover = null; atualizarCentroPizza(); };
+                    box.appendChild(el);
+                });
+            });
+        }
+
+        function ajustarEscalaPizza() {
+            const palco = document.getElementById('pizzaPalco');
+            const stage = document.getElementById('pizzaStage');
+            const w = palco.clientWidth;
+            if (!w) return;
+
+            const compacto = w < 520;   // celular: palco estreito com rótulos menores
+            if (layoutAtual !== compacto) {
+                layoutAtual = compacto;
+                aplicarLayoutPizza(compacto);
+                if (fatiasPizza.length) desenharRotulosPizza();
+            }
+
+            const porAltura = Math.max(0.5, (window.innerHeight - 260) / PIZZA_H);
+            const esc = Math.min(w / PIZZA_W, porAltura, 1.6);
+            stage.style.transform = `scale(${esc})`;
+            stage.style.top = '0px';
+            palco.style.height = `${PIZZA_H * esc}px`;
+        }
+
+        let fatiasPizza = [];
+        let fatiaSelecionada = null;
+        let fatiaHover = null;
+
+        function atualizarCentroPizza() {
+            const f = fatiaHover || fatiaSelecionada;
+            const titulo = document.getElementById('pizzaCentroTitulo');
+            const valor = document.getElementById('pizzaTotalMaterias');
+            if (f) {
+                titulo.innerText = f.nome;
+                valor.innerText = `${f.qtd} (${f.pct}%)`;
+            } else {
+                titulo.innerText = 'Total';
+                valor.innerText = fatiasPizza.reduce((acc, x) => acc + x.qtd, 0);
+            }
+        }
+
+        function fatiaNoPonto(e) {
+            const r = document.getElementById('pizzaChartVisual').getBoundingClientRect();
+            const dx = e.clientX - (r.left + r.width / 2);
+            const dy = e.clientY - (r.top + r.height / 2);
+            const dist = Math.hypot(dx, dy);
+            if (dist > r.width / 2 || dist < r.width * 0.25) return null;
+            let ang = Math.atan2(dx, -dy) * 180 / Math.PI;
+            if (ang < 0) ang += 360;
+            return fatiasPizza.find(f => ang >= f.ini && ang < f.fim) || null;
+        }
+
+        // Cada conteúdo (ex.: "Crase", "Juros Simples e Compostos") vira uma fatia.
+        // Conteúdos iguais em concursos diferentes são somados.
+        function openRankingModal() {
+            mapaMateriasOrgaos = {};
+
+            concursos.forEach(c => {
+                if (!c.materias) return;
+                c.materias.split(/\n/).forEach(linha => {
+                    const l = linha.trim();
+                    if (!l || !l.includes(':')) return;
+                    const i = l.indexOf(':');
+                    const nomeMateria = l.slice(0, i).trim();
+                    l.slice(i + 1).split(',').forEach(cont => {
+                        const nome = cont.trim();
+                        const chave = semAcento(nome);
+                        if (!chave) return;
+                        if (!mapaMateriasOrgaos[chave]) {
+                            mapaMateriasOrgaos[chave] = { nome, materias: [], orgaos: [] };
+                        }
+                        const reg = mapaMateriasOrgaos[chave];
+                        if (nomeMateria && !reg.materias.includes(nomeMateria)) reg.materias.push(nomeMateria);
+                        if (!reg.orgaos.some(item => item.orgao === c.orgao && item.cargo === c.cargo)) {
+                            reg.orgaos.push({ orgao: c.orgao, cargo: c.cargo });
+                        }
+                    });
+                });
+            });
+
+            voltarParaGrafico();
+            document.getElementById('rankingModal').classList.remove('hidden');
+            document.getElementById('rankingModal').classList.add('flex');
+        }
+
+        function atualizarVisualizacaoGrafico() {
+            const ranking = Object.entries(mapaMateriasOrgaos)
+                .sort((a, b) => b[1].orgaos.length - a[1].orgaos.length || a[1].nome.localeCompare(b[1].nome, 'pt-BR'));
+
+            const pizzaLegenda = document.getElementById('pizzaLegenda');
+            pizzaLegenda.innerHTML = '';
+
+            if (ranking.length === 0) {
+                pizzaLegenda.innerHTML = '<p class="text-slate-400 italic text-sm text-center col-span-full">Nenhum conteúdo registrado nos concursos ainda.</p>';
+                document.getElementById('pizzaChartVisual').style.background = '#e2e8f0';
+                document.getElementById('pizzaRotulos').innerHTML = '';
+                fatiasPizza = [];
+                desenharRotulosPizza();
+                fatiaSelecionada = null;
+                fatiaHover = null;
+                atualizarCentroPizza();
+                return;
+            }
+
+            fatiasPizza = [];
+            fatiaSelecionada = null;
+            fatiaHover = null;
+            const rotulosEl = document.getElementById('pizzaRotulos');
+            rotulosEl.innerHTML = '';
+
+            const totalOcorrencias = ranking.reduce((acc, [, r]) => acc + r.orgaos.length, 0);
+            const coresPizza = ['#059669', '#10b981', '#34d399', '#6ee7b7', '#0284c7', '#38bdf8', '#6366f1', '#a855f7', '#ec4899', '#f43f5e', '#f59e0b', '#84cc16'];
+            let acumuladoGraus = 0;
+            const cssConic = [];
+
+            ranking.forEach(([chave, reg], idx) => {
+                const qtd = reg.orgaos.length;
+                const cor = idx < coresPizza.length ? coresPizza[idx] : `hsl(${(idx * 47) % 360} 65% 50%)`;
+
+                const graus = (qtd / totalOcorrencias) * 360;
+                const proximoGraus = acumuladoGraus + graus;
+                cssConic.push(`${cor} ${acumuladoGraus}deg ${proximoGraus}deg`);
+                const pctFatia = Math.round((qtd / totalOcorrencias) * 100);
+                const fatia = { chave, nome: reg.nome, materias: reg.materias, qtd, pct: pctFatia, ini: acumuladoGraus, fim: proximoGraus, cor };
+                fatiasPizza.push(fatia);
+
+                if (pctFatia >= 8) {
+                    const meio = (acumuladoGraus + proximoGraus) / 2 * Math.PI / 180;
+                    const rot = document.createElement('span');
+                    rot.className = 'absolute text-xs font-bold text-white';
+                    rot.style.cssText = `left:${50 + 37.5 * Math.sin(meio)}%;top:${50 - 37.5 * Math.cos(meio)}%;transform:translate(-50%,-50%);text-shadow:0 1px 3px rgba(0,0,0,.7)`;
+                    rot.style.fontSize = L === LAYOUTS.pequeno ? '11px' : '';
+                    rot.innerText = qtd;
+                    rotulosEl.appendChild(rot);
+                }
+                acumuladoGraus = proximoGraus;
+
+                const legItem = document.createElement('div');
+                legItem.className = "flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100 text-xs cursor-pointer hover:bg-emerald-50 transition";
+                legItem.onclick = () => mostrarOrgaosDaMateria(chave);
+                legItem.onmouseenter = () => { fatiaHover = fatia; atualizarCentroPizza(); };
+                legItem.onmouseleave = () => { fatiaHover = null; atualizarCentroPizza(); };
+                legItem.innerHTML = `
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-3 h-3 rounded-full inline-block shrink-0" style="background: ${cor}"></span>
+                        <div class="min-w-0">
+                            <div class="font-bold text-slate-700 truncate">${escapeHtml(reg.nome)}</div>
+                            <div class="text-[10px] text-slate-400 truncate">${escapeHtml(reg.materias.join(' • '))}</div>
+                        </div>
+                    </div>
+                    <span class="text-slate-500 font-medium shrink-0">${qtd} (${pctFatia}%)</span>
+                `;
+                pizzaLegenda.appendChild(legItem);
+            });
+
+            document.getElementById('pizzaChartVisual').style.background = `conic-gradient(${cssConic.join(', ')})`;
+            atualizarCentroPizza();
+            desenharRotulosPizza();
+            ajustarEscalaPizza();
+        }
+
+        function mostrarOrgaosDaMateria(chave) {
+            document.getElementById('pizzaSection').classList.add('hidden');
+            document.getElementById('instrucaoGrafico').classList.add('hidden');
+
+            const reg = mapaMateriasOrgaos[chave] || { nome: '', materias: [], orgaos: [] };
+            document.getElementById('orgaoDetalheContainer').classList.remove('hidden');
+            document.getElementById('detalheMateriaTitulo').innerText =
+                `Órgãos que cobram: ${reg.nome}` + (reg.materias.length ? ` (${reg.materias.join(' • ')})` : '');
+
+            const listaEl = document.getElementById('listaOrgaosPorMateria');
+            listaEl.innerHTML = '';
+            reg.orgaos.forEach(item => {
+                const li = document.createElement('div');
+                li.className = "bg-indigo-50/60 border border-indigo-100 p-2.5 rounded-lg flex items-center justify-between text-xs";
+                li.innerHTML = `
+                    <span class="font-bold text-indigo-700"><i class="fa-solid fa-building-columns mr-1"></i> ${escapeHtml(item.orgao)}</span>
+                    <span class="text-slate-600">${escapeHtml(item.cargo)}</span>
+                `;
+                listaEl.appendChild(li);
+            });
+        }
+
+        function voltarParaGrafico() {
+            document.getElementById('orgaoDetalheContainer').classList.add('hidden');
+            document.getElementById('instrucaoGrafico').classList.remove('hidden');
+            document.getElementById('pizzaSection').classList.remove('hidden');
+            atualizarVisualizacaoGrafico();
+        }
+
+        function closeRankingModal() {
+            document.getElementById('rankingModal').classList.remove('flex');
+            document.getElementById('rankingModal').classList.add('hidden');
+        }
+
+        let bloqueioCliqueAte = 0;
+        const TEMPO_PRESSIONAR = 400;   // ms segurando o ícone antes de poder arrastar
+
+        // Começa a contar quando o dedo toca no ícone. Só vira "arrastar" se o dedo
+        // ficar parado segurando; se mexer antes disso, é rolagem normal da página.
+        function prepararArrasteToque(e, item, origem) {
+            const alca = e.currentTarget;
+            const toque = e.touches[0];
+            const x0 = toque.clientX, y0 = toque.clientY;
+            let arrasto = null;
+
+            const timer = setTimeout(() => {
+                arrasto = iniciarArrasteToque(item, origem, y0);
+                if (arrasto && navigator.vibrate) navigator.vibrate(30);
+            }, TEMPO_PRESSIONAR);
+
+            const limpar = () => {
+                clearTimeout(timer);
+                alca.removeEventListener('touchmove', mover);
+                alca.removeEventListener('touchend', soltar);
+                alca.removeEventListener('touchcancel', cancelar);
+            };
+            function mover(ev) {
+                const t = ev.touches[0];
+                if (!arrasto) {
+                    // dedo andou antes de completar o "segurar": era rolagem, então desiste
+                    if (Math.hypot(t.clientX - x0, t.clientY - y0) > 10) limpar();
+                    return;
+                }
+                ev.preventDefault();   // já está arrastando: não deixa a página rolar
+                arrasto.mover(t.clientY);
+            }
+            function soltar() { const a = arrasto; limpar(); if (a) a.terminar(true); }
+            function cancelar() { const a = arrasto; limpar(); if (a) a.terminar(false); }
+
+            alca.addEventListener('touchmove', mover, { passive: false });
+            alca.addEventListener('touchend', soltar);
+            alca.addEventListener('touchcancel', cancelar);
+        }
+
+        function iniciarArrasteToque(item, origem, yInicial) {
+            const lista = document.getElementById('concursosTableBody');
+            const itens = Array.from(lista.children);
+            if (itens.length !== concursos.length) return null;
+
+            // recolhe o painel do item arrastado para ele ficar compacto
+            item.children[1].classList.add('hidden');
+
+            const topoPagina = () => window.scrollY;
+            const rects = itens.map(el => {
+                const r = el.getBoundingClientRect();
+                return { top: r.top + topoPagina(), height: r.height };
+            });
+            const altura = rects[origem].height;
+            const inicioPageY = yInicial + topoPagina();
+            let clientY = yInicial;
+            let destino = origem;
+            let rolagem = 0;
+
+            item.classList.add('arrastando-toque');
+            item.style.position = 'relative';
+            item.style.zIndex = '20';
+            itens.forEach(el => { if (el !== item) el.style.transition = 'transform .15s ease'; });
+
+            const atualizar = () => {
+                const dy = (clientY + topoPagina()) - inicioPageY;
+                item.style.transform = `translateY(${dy}px)`;
+                const centro = rects[origem].top + altura / 2 + dy;
+
+                let novo = 0;
+                rects.forEach((r, i) => { if (i !== origem && r.top + r.height / 2 < centro) novo++; });
+                destino = novo;
+
+                itens.forEach((el, i) => {
+                    if (i === origem) return;
+                    let desloc = 0;
+                    if (origem < destino && i > origem && i <= destino) desloc = -altura;
+                    if (origem > destino && i < origem && i >= destino) desloc = altura;
+                    el.style.transform = desloc ? `translateY(${desloc}px)` : '';
+                });
+            };
+
+            const rolar = () => {
+                if (rolagem) { window.scrollBy(0, rolagem); atualizar(); }
+                rafId = requestAnimationFrame(rolar);
+            };
+            let rafId = requestAnimationFrame(rolar);
+
+            atualizar();
+
+            return {
+                mover(y) {
+                    clientY = y;
+                    rolagem = y < 90 ? -12 : (y > window.innerHeight - 90 ? 12 : 0);
+                    atualizar();
+                },
+                terminar(confirmar) {
+                    cancelAnimationFrame(rafId);
+                    bloqueioCliqueAte = Date.now() + 400;
+                    if (confirmar && destino !== origem) {
+                        const movido = concursos.splice(origem, 1)[0];
+                        concursos.splice(destino, 0, movido);
+                        saveToLocalStorage();
+                    }
+                    renderTable(document.getElementById('searchInput').value);
+                }
+            };
+        }
+
+        let draggedIndex = null;
+        function handleDragStart(e) { draggedIndex = parseInt(this.dataset.index); this.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
+        function handleDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+        function handleDrop(e) {
+            e.preventDefault();
+            const targetIndex = parseInt(this.dataset.index);
+            if (draggedIndex !== null && draggedIndex !== targetIndex) {
+                const movedItem = concursos.splice(draggedIndex, 1)[0];
+                concursos.splice(targetIndex, 0, movedItem);
+                saveToLocalStorage();
+                renderTable(document.getElementById('searchInput').value);
+            }
+        }
+        function handleDragEnd() { this.classList.remove('dragging'); draggedIndex = null; }
+
+        function openMateriasModal(index) {
+            const c = concursos[index];
+            document.getElementById('materiasModalTitle').innerText = `${c.orgao} - ${c.cargo}`;
+            const container = document.getElementById('materiasListContainer');
+            container.innerHTML = '';
+            if (!c.materias || c.materias.trim() === '') {
+                container.innerHTML = '<p class="text-slate-400 italic text-sm">Nenhuma matéria cadastrada.</p>';
+            } else {
+                c.materias.split(/\n/).filter(l => l.trim().length > 0).forEach(linha => {
+                    const card = document.createElement('div');
+                    card.className = "bg-slate-50 p-3 rounded-lg border border-slate-200";
+                    if (linha.includes(':')) {
+                        const partes = linha.split(':');
+                        const nome = partes[0].trim();
+                        const conteudos = partes.slice(1).join(':').trim();
+                        let subHtml = '';
+                        if (conteudos) {
+                            subHtml = `<ul class="mt-2 space-y-1 pl-4 border-l-2 border-indigo-200">` + 
+                                conteudos.split(',').map(i => `<li class="text-xs text-slate-600 flex items-center gap-1.5"><i class="fa-solid fa-circle text-[5px] text-indigo-500"></i> ${escapeHtml(i.trim())}</li>`).join('') + `</ul>`;
+                        }
+                        card.innerHTML = `<h4 class="font-bold text-indigo-700 text-sm flex items-center gap-2"><i class="fa-solid fa-book"></i> ${escapeHtml(nome)}</h4>${subHtml}`;
+                    } else {
+                        card.innerHTML = `<h4 class="font-bold text-indigo-700 text-sm flex items-center gap-2"><i class="fa-solid fa-book"></i> ${escapeHtml(linha)}</h4>`;
+                    }
+                    container.appendChild(card);
+                });
+            }
+            document.getElementById('materiasModal').classList.remove('hidden');
+            document.getElementById('materiasModal').classList.add('flex');
+        }
+
+        function closeMateriasModal() {
+            document.getElementById('materiasModal').classList.remove('flex');
+            document.getElementById('materiasModal').classList.add('hidden');
+        }
+
+        // ---- Editor de matérias: cada matéria é um título que abre o próprio conteúdo ----
+        // Formato guardado (igual ao de antes): uma linha por matéria -> "Nome: conteúdo 1, conteúdo 2"
+        function parsearMaterias(texto) {
+            return String(texto || '').split('\n').map(l => l.trim()).filter(Boolean).map(linha => {
+                const i = linha.indexOf(':');
+                return i >= 0
+                    ? { nome: linha.slice(0, i).trim(), conteudo: linha.slice(i + 1).trim() }
+                    : { nome: linha, conteudo: '' };
+            });
+        }
+
+        function serializarMaterias(lista) {
+            return lista.map(({ nome, conteudo }) => {
+                const n = String(nome || '').replace(/[:\n]/g, ' ').replace(/\s+/g, ' ').trim();
+                const c = String(conteudo || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean).join(', ');
+                if (!n && !c) return '';
+                return c ? `${n || 'Sem nome'}: ${c}` : n;
+            }).filter(Boolean).join('\n');
+        }
+
+        function resumoConteudo(texto) {
+            const n = texto.split(/[,\n]/).map(x => x.trim()).filter(Boolean).length;
+            return n === 0 ? 'sem conteúdo' : (n === 1 ? '1 conteúdo' : `${n} conteúdos`);
+        }
+
+        function atualizarMateriasVazio() {
+            const tem = document.querySelectorAll('#materiasEditor .materia-linha').length > 0;
+            document.getElementById('materiasVazio').classList.toggle('hidden', tem);
+        }
+
+        function criarLinhaMateria(nome = '', conteudo = '', aberta = false) {
+            const linha = document.createElement('div');
+            linha.className = 'materia-linha border border-slate-200 rounded-lg overflow-hidden bg-white';
+            linha.innerHTML = `
+                <div class="m-cab flex items-center gap-2 px-3 py-3 bg-slate-50 cursor-pointer select-none" role="button" tabindex="0" aria-expanded="false">
+                    <i class="m-seta fa-solid fa-chevron-right text-slate-400 text-xs w-3 transition-transform"></i>
+                    <span class="m-titulo flex-1 font-semibold text-sm truncate"></span>
+                    <span class="m-resumo text-[11px] text-slate-400 whitespace-nowrap"></span>
+                    <button type="button" class="m-remover text-slate-400 hover:text-rose-600 p-2 -mr-1" aria-label="Remover matéria" title="Remover matéria"><i class="fa-solid fa-trash"></i></button>
+                </div>
+                <div class="m-corpo hidden px-3 py-3 border-t border-slate-100 space-y-3">
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Nome da matéria</label>
+                        <input type="text" class="m-nome w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Ex: Português">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Conteúdos</label>
+                        <textarea rows="4" class="m-conteudo w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Ex: Crase, Concordância, Sintaxe"></textarea>
+                        <p class="text-[11px] text-slate-400 mt-1">Separe os conteúdos por vírgula.</p>
+                    </div>
+                </div>`;
+
+            const cab = linha.querySelector('.m-cab');
+            const seta = linha.querySelector('.m-seta');
+            const corpo = linha.querySelector('.m-corpo');
+            const titulo = linha.querySelector('.m-titulo');
+            const resumo = linha.querySelector('.m-resumo');
+            const inNome = linha.querySelector('.m-nome');
+            const inCont = linha.querySelector('.m-conteudo');
+
+            inNome.value = nome;
+            inCont.value = conteudo;
+
+            const atualizarTitulo = () => {
+                const t = inNome.value.trim();
+                titulo.textContent = t || 'Nova matéria';
+                titulo.classList.toggle('text-indigo-700', !!t);
+                titulo.classList.toggle('text-slate-400', !t);
+            };
+            const atualizarResumo = () => { resumo.textContent = resumoConteudo(inCont.value); };
+            const mostrar = (abrir) => {
+                corpo.classList.toggle('hidden', !abrir);
+                seta.classList.toggle('rotate-90', abrir);
+                cab.setAttribute('aria-expanded', abrir);
+            };
+
+            atualizarTitulo();
+            atualizarResumo();
+            mostrar(aberta);
+
+            cab.addEventListener('click', () => mostrar(corpo.classList.contains('hidden')));
+            cab.addEventListener('keydown', (e) => {
+                if (e.target === cab && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    mostrar(corpo.classList.contains('hidden'));
+                }
+            });
+            inNome.addEventListener('input', atualizarTitulo);
+            inNome.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); inCont.focus(); }
+            });
+            inCont.addEventListener('input', atualizarResumo);
+            linha.querySelector('.m-remover').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (inCont.value.trim() && !confirm(`Remover a matéria "${inNome.value.trim() || 'sem nome'}" e o conteúdo dela?`)) return;
+                linha.remove();
+                atualizarMateriasVazio();
+            });
+            return linha;
+        }
+
+        function carregarMateriasEditor(texto) {
+            const box = document.getElementById('materiasEditor');
+            box.innerHTML = '';
+            parsearMaterias(texto).forEach(m => box.appendChild(criarLinhaMateria(m.nome, m.conteudo, false)));
+            atualizarMateriasVazio();
+        }
+
+        function lerMateriasEditor() {
+            return serializarMaterias(Array.from(document.querySelectorAll('#materiasEditor .materia-linha')).map(l => ({
+                nome: l.querySelector('.m-nome').value,
+                conteudo: l.querySelector('.m-conteudo').value
+            })));
+        }
+
+        function adicionarMateria() {
+            const linha = criarLinhaMateria('', '', true);
+            document.getElementById('materiasEditor').appendChild(linha);
+            atualizarMateriasVazio();
+            linha.querySelector('.m-nome').focus();
+            linha.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function openModal(index = null) {
+            const modal = document.getElementById('concursoModal');
+            document.getElementById('concursoForm').reset();
+            
+            if (index !== null) {
+                document.getElementById('concursoIndex').value = index;
+                const c = concursos[index];
+                document.getElementById('orgao').value = c.orgao;
+                document.getElementById('cargo').value = c.cargo;
+                document.getElementById('nivel').value = c.nivel;
+                document.getElementById('salario').value = c.salario;
+                document.getElementById('ar').value = c.ar ? c.ar.replace(/^R\$\s*/i, '') : '';
+                document.getElementById('jornada').value = c.jornada;
+                document.getElementById('previsao').value = c.previsao || '';
+                carregarMateriasEditor(c.materias);
+                definirCores(coresDe(c));
+            } else {
+                document.getElementById('concursoIndex').value = '';
+                definirCores([]);
+                carregarMateriasEditor('');
+            }
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeModal() {
+            document.getElementById('concursoModal').classList.remove('flex');
+            document.getElementById('concursoModal').classList.add('hidden');
+        }
+
+        function saveConcurso(event) {
+            event.preventDefault();
+            const index = document.getElementById('concursoIndex').value;
+            let arVal = document.getElementById('ar').value.trim();
+            if (arVal && !arVal.toUpperCase().includes('R$')) {
+                arVal = 'R$ ' + arVal;
+            }
+
+            const data = {
+                orgao: document.getElementById('orgao').value.trim(),
+                cargo: document.getElementById('cargo').value.trim(),
+                nivel: document.getElementById('nivel').value.trim(),
+                salario: document.getElementById('salario').value.trim().replace(/^R\$\s*/i, ''),
+                ar: arVal,
+                jornada: document.getElementById('jornada').value.trim(),
+                previsao: document.getElementById('previsao').value.trim(),
+                materias: lerMateriasEditor(),
+                cores: lerCores(),
+                fav: index === '' ? false : !!concursos[index].fav
+            };
+
+            if (index === '') {
+                concursos.push(data);
+            } else {
+                concursos[index] = data;
+            }
+
+            saveToLocalStorage();
+            renderTable(document.getElementById('searchInput').value);
+            closeModal();
+        }
+
+        function editConcurso(index) { openModal(index); }
+        function deleteConcurso(index) {
+            if (confirm("Deseja realmente excluir este concurso?")) {
+                concursos.splice(index, 1);
+                saveToLocalStorage();
+                renderTable(document.getElementById('searchInput').value);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        document.getElementById('searchInput').addEventListener('input', (e) => renderTable(e.target.value));
+        window.matchMedia('(min-width: 768px)').addEventListener('change', () => renderTable(document.getElementById('searchInput').value));
+
+        new ResizeObserver(ajustarEscalaPizza).observe(document.getElementById('pizzaPalco'));
+        window.addEventListener('resize', ajustarEscalaPizza);
+
+        definirCores([]);
+
+        if (window.matchMedia('(pointer: coarse)').matches) {
+            document.getElementById('dicaOrdenar').innerHTML = '<i class="fa-solid fa-grip-vertical"></i> Segure o ícone e arraste para reordenar';
+        }
+
+        const pizzaEl = document.getElementById('pizzaChartVisual');
+        pizzaEl.addEventListener('mousemove', (e) => {
+            fatiaHover = fatiaNoPonto(e);
+            pizzaEl.style.cursor = fatiaHover ? 'pointer' : 'default';
+            atualizarCentroPizza();
+        });
+        pizzaEl.addEventListener('mouseleave', () => {
+            fatiaHover = null;
+            atualizarCentroPizza();
+        });
+        pizzaEl.addEventListener('click', (e) => {
+            const f = fatiaNoPonto(e);
+            if (!f) return;
+            fatiaSelecionada = (fatiaSelecionada === f) ? null : f;
+            atualizarCentroPizza();
+        });
+
+        const modaisFechar = {
+            concursoModal: closeModal,
+            materiasModal: closeMateriasModal,
+            rankingModal: closeRankingModal
+        };
+        Object.entries(modaisFechar).forEach(([id, fechar]) => {
+            document.getElementById(id).addEventListener('click', (e) => {
+                if (e.target.id === id) fechar();
+            });
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            Object.entries(modaisFechar).forEach(([id, fechar]) => {
+                if (!document.getElementById(id).classList.contains('hidden')) fechar();
+            });
+        });
+        renderTable();
+    </script>
+</body>
+</html>
